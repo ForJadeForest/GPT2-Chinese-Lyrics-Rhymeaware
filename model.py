@@ -9,10 +9,12 @@ import numpy as np
 
 
 def clones(module, N):
-    "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
-
+def _generate_square_subsequent_mask(sz):
+    mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+    mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+    return mask
 class Aggregator(nn.Module):
     def __init__(self, rhyme_embedding_size, word_embedding_size, fusion_dim):
         super().__init__()
@@ -29,7 +31,7 @@ class Aggregator(nn.Module):
 
     def forward(self, word_seq_re, rhy_seq_re):
         device = word_seq_re.device
-        mask = nn.Transformer.generate_square_subsequent_mask(self=nn.Transformer(), sz=word_seq_re.shape[1]).to(device)
+        mask = _generate_square_subsequent_mask(sz=word_seq_re.shape[1]).to(device)
         word_seq_re = self.word_attention(word_seq_re, word_seq_re, word_seq_re, attn_mask=mask)[0]
         rhy_seq_re = self.rhyme_attention(rhy_seq_re, rhy_seq_re, rhy_seq_re, attn_mask=mask)[0]
         h = self.relu(self.fusion_matrix_word(word_seq_re) + self.fusion_matrix_rhyme(rhy_seq_re))
@@ -124,7 +126,8 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         # 预测隐层节点状态中的每一个token的下一个token，size:[batch_size, sequence_length, config.vocab_size]
         lm_logits = self.lm_head(hidden_states)
         # 拼接输出结果
-        outputs = (lm_logits,) + transformer_outputs[1:]
+        # outputs = (lm_logits,) + transformer_outputs[1:]
+        outputs = (lm_logits,)
         # 如果labels不为None时，计算损失值loss，并拼接到输出结果中
         if labels is not None:
             # 计算loss时，title_id不可以为None，因为需要title_id找到title的部分
