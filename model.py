@@ -1,30 +1,33 @@
-import torch
-from torch.nn import CrossEntropyLoss
-import torch.nn as nn
-
-from transformers.models.gpt2 import GPT2PreTrainedModel, GPT2Model
 import copy
+
+import torch
+import torch.nn as nn
+from torch.nn import CrossEntropyLoss
+from transformers.models.gpt2 import GPT2PreTrainedModel, GPT2Model
+
 from search_rhyme import *
-import numpy as np
 
 
 def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
+
 def _generate_square_subsequent_mask(sz):
     mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
     mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
     return mask
+
+
 class Aggregator(nn.Module):
-    def __init__(self, rhyme_embedding_size, word_embedding_size, fusion_dim):
+    def __init__(self, rhyme_embedding_size, word_embedding_size, fusion_dim,num_heads):
         super().__init__()
         self.fusion_dim = fusion_dim
         self.fusion_matrix_rhyme = nn.Linear(rhyme_embedding_size, self.fusion_dim, bias=True)
         self.fusion_matrix_word = nn.Linear(word_embedding_size, self.fusion_dim, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        self.rhyme_attention = nn.MultiheadAttention(embed_dim=rhyme_embedding_size, num_heads=8, dropout=0.1,
+        self.rhyme_attention = nn.MultiheadAttention(embed_dim=rhyme_embedding_size, num_heads=num_heads, dropout=0.1,
                                                      batch_first=True)
-        self.word_attention = nn.MultiheadAttention(embed_dim=word_embedding_size, num_heads=8, dropout=0.1,
+        self.word_attention = nn.MultiheadAttention(embed_dim=word_embedding_size, num_heads=num_heads, dropout=0.1,
                                                     batch_first=True)
         self.back_rhyme = nn.Linear(self.fusion_dim, rhyme_embedding_size, bias=True)
         self.back_word = nn.Linear(self.fusion_dim, word_embedding_size, bias=True)
@@ -89,10 +92,13 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         self.fusion_dim = finetune_args["fusion_dim"]
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.rhyme_embedding = nn.Embedding(len(self.rhy_vocab) + 2, rhyme_embedding_size, padding_idx=0)
-        self.aggregator = clones(Aggregator(rhyme_embedding_size, config.n_embd, self.fusion_dim), self.N)
+        self.head_num = finetune_args["head_num"]
+        self.aggregator = clones(Aggregator(rhyme_embedding_size, config.n_embd, self.fusion_dim,self.head_num), self.N)
         if self.has_res:
             self.sublayer = clones(SublayerConnection(size=config.n_embd, dropout=0.1), self.N)
-
+        self.word_fusion = nn.Linear(config.n_embd,config.n_embd)
+        self.rhyme_fusion = nn.Linear(config.n_embd, config.n_embd)
+        self.relu = nn.ReLU(inplace=True)
         self.init_weights()
 
     def forward(self, input_ids=None, past=None, token_type_ids=None, labels=None, second_id=None, rhyme_ids=None):
@@ -124,6 +130,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             for layer in self.aggregator:
                 word_represent, rhy_embedding = layer(word_represent, rhy_embedding)
         # 预测隐层节点状态中的每一个token的下一个token，size:[batch_size, sequence_length, config.vocab_size]
+        # hidden_states = word_represent + rhy_embedding
+        hidden_states = self.relu(self.word_fusion(word_represent)) + self.relu(self.rhyme_fusion(rhy_embedding))
+
         lm_logits = self.lm_head(hidden_states)
         # 拼接输出结果
         # outputs = (lm_logits,) + transformer_outputs[1:]
@@ -158,4 +167,3 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
     @property
     def get_finetune_args(self):
         return self.finetune_args
-
