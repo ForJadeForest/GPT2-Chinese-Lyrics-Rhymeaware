@@ -1,5 +1,5 @@
-from pypinyin.style._utils import get_finals
 from pypinyin import lazy_pinyin
+from pypinyin.style._utils import get_finals
 
 
 def _is_chinese_char(char):
@@ -39,8 +39,8 @@ def get_rhyme(word):
     rhymes_chinese = read_rhyme_vocab()
     for idx, rhymes in enumerate(rhymes_chinese):
         if rhyme in rhymes:
-            return idx + 1
-    return len(rhymes_chinese) + 1
+            return idx
+    return len(rhymes_chinese)
 
 
 def get_sent_rhyme(sentence):
@@ -51,11 +51,10 @@ def get_sent_rhyme(sentence):
 
 
 def get_rhyme_vocab():
-    chinese_rhyme = []
-
     chinese_rhyme = (read_rhyme_vocab())
 
     rhyme_vocab = {
-        i : rhyme for i, rhyme in enumerate(chinese_rhyme)
+        i: rhyme for i, rhyme in enumerate(chinese_rhyme)
     }
     return rhyme_vocab
+

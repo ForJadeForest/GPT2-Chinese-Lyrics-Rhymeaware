@@ -1,20 +1,22 @@
-import torch
+import argparse
+import json
+import logging
 import os
 import random
-import numpy as np
-import argparse
-import logging
 import time
-from transformers.models.gpt2 import GPT2Config
-from model import GPT2LMHeadModel
-from transformers import BertTokenizer
-from data_set import collate_func, GPT2RapGeneratorDataSet
+
+import numpy as np
+import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import AdamW
-from transformers import get_linear_schedule_with_warmup
-from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
-import json
+from tqdm import tqdm
+from transformers import AdamW
+from transformers import BertTokenizer
+from transformers import get_linear_schedule_with_warmup
+from transformers.models.gpt2 import GPT2Config
+
+from data_set import collate_func, GPT2RapGeneratorDataSet
+from model import GPT2LMHeadModel
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -22,7 +24,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 
-def train(model, device, train_data, test_data, args):
+def train(model, device, train_data, test_data, args, ):
     """
     训练模型
     Args:
@@ -41,8 +43,10 @@ def train(model, device, train_data, test_data, args):
     # 计算真实的训练batch_size大小
     train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
     train_sampler = RandomSampler(train_data)
+    # train_data_loader = DataLoader(train_data, sampler=train_sampler, batch_size=train_batch_size,
+    #                                collate_fn=collate_func, num_workers=8, pin_memory=True)
     train_data_loader = DataLoader(train_data, sampler=train_sampler, batch_size=train_batch_size,
-                                   collate_fn=collate_func, num_workers=8, pin_memory=False)
+                                   collate_fn=collate_func)
     total_steps = int(len(train_data_loader) * args.num_train_epochs / args.gradient_accumulation_steps)
     logger.info("总训练步数为:{}".format(total_steps))
     model.to(device)
@@ -56,10 +60,11 @@ def train(model, device, train_data, test_data, args):
             nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
     # 设置优化器
-    optimizer = AdamW(optimizer_grouped_parameters,
-                      lr=args.learning_rate, eps=args.adam_epsilon)
+
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(args.warmup_proportion * total_steps),
                                                 num_training_steps=total_steps)
+
     # 清空cuda缓存
     torch.cuda.empty_cache()
     # 将模型调至训练状态
@@ -72,28 +77,39 @@ def train(model, device, train_data, test_data, args):
     now_time = get_time().replace(' ', '-')
     if not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)
-    output_dir = os.path.join(args.output_dir, '[' + now_time + ']' + args.simple_desc)
-    finetune_para_path = os.path.join(output_dir, 'fine_tune.json')
+
+    if args.continue_train:
+        output_dir = args.pretrained_model_path
+        finetune_para_path = args.pretrained_model_path
+        checkpoint = torch.load(os.path.join(output_dir, 'checkpoint-epoch={}'.format(args.epoch),
+                                             'checkpoint-optimizer-epoch={}'.format(args.epoch)))
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        scheduler.load_state_dict(checkpoint['scheduler'])
+
+    else:
+        output_dir = os.path.join(args.output_dir, '[' + now_time + ']' + args.simple_desc)
+        finetune_para_path = os.path.join(output_dir, 'fine_tune.json')
+
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
-    with open(os.path.join(output_dir, 'desc.txt'), 'w') as f:
-        f.write('=' * 100 + '\n')
-        for k in args.__dict__:
-            f.write(str(k) + ": " + str(args.__dict__[k]) + '\n')
-        f.write('=' * 100 + '\n')
-        model_text = model.__repr__()
-        f.write(model_text[:16] + model_text[6526:])
+        with open(os.path.join(output_dir, 'desc.txt'), 'w') as f:
+            f.write('=' * 100 + '\n')
+            for k in args.__dict__:
+                f.write(str(k) + ": " + str(args.__dict__[k]) + '\n')
+            f.write('=' * 100 + '\n')
+            model_text = model.__repr__()
+            f.write(model_text[:16] + model_text[6526:])
 
-    with open(finetune_para_path, 'w') as f:
-        data2 = json.dumps(model.get_finetune_args, sort_keys=True, indent=4, separators=(',', ': '))
-        f.write(data2)
+        with open(finetune_para_path, 'w') as f:
+            data2 = json.dumps(model.get_finetune_args, sort_keys=True, indent=4, separators=(',', ': '))
+            f.write(data2)
 
     summary_path = os.path.join(output_dir, 'runs')
     tb_write = SummaryWriter(summary_path)
     # 开始训练模型
-    for iepoch in range(0, int(args.num_train_epochs)):
+    for iepoch in range(args.epoch + 1, int(args.num_train_epochs)):
         iter_bar = tqdm(train_data_loader, position=0, desc="Iter (loss=X.XXX)", disable=False, ncols=100)
-        # start = time.time()
+        start = time.time()
         for step, batch in enumerate(iter_bar):
             input_ids = batch["input_ids"].to(device)
             token_type_ids = batch["token_type_ids"].to(device)
@@ -113,7 +129,6 @@ def train(model, device, train_data, test_data, args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
             # 当训练步数整除累积步数时，进行参数优化
             if (step + 1) % args.gradient_accumulation_steps == 0:
-
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
@@ -129,14 +144,21 @@ def train(model, device, train_data, test_data, args):
                     eval_loss = evaluate(model, device, test_data, args)
                     tb_write.add_scalar("test_loss", eval_loss, global_step)
                     model.train()
-
+            del input_ids, token_type_ids, rhyme_ids
 
         # 每个epoch进行完，则保存模型
-        # end_time = time.time()
-        # time_list.append((end_time - start))
+        end_time = time.time()
+        time_list.append((end_time - start))
         model_output_dir = os.path.join(output_dir, "checkpoint-epoch={}".format(iepoch))
         model_to_save = model.module if hasattr(model, "module") else model
         model_to_save.save_pretrained(model_output_dir)
+        torch.save({
+            'optimizer': optimizer.state_dict(),
+            'epoch': iepoch,
+            'scheduler': scheduler.state_dict(),
+        }, os.path.join(output_dir, "checkpoint-epoch={}".format(iepoch),
+                        "checkpoint-optimizer-epoch={}".format(iepoch)))
+
         # 清空cuda缓存
         torch.cuda.empty_cache()
     with open(os.path.join(output_dir, 'desc.txt'), 'a') as f:
@@ -167,7 +189,6 @@ def evaluate(model, device, test_data, args):
 
     """
     # 构造测试集的DataLoader
-    print("开始测试阶段")
     test_sampler = SequentialSampler(test_data)
     test_data_loader = DataLoader(test_data, sampler=test_sampler,
                                   batch_size=args.test_batch_size, collate_fn=collate_func)
@@ -226,7 +247,11 @@ def set_args():
     parser.add_argument('--has_res', type=bool, default=False, help='是否使用残差')
     parser.add_argument('--desc', type=str, default=None, help='训练描述')
     parser.add_argument('--simple_desc', type=str, default=None, help='训练描述')
-
+    parser.add_argument('--head_num', type=int, default=None, help='注意力头的个数')
+    parser.add_argument('--is_mask', type=bool, default=True, help='是否使用mask attention')
+    parser.add_argument('--continue_train', type=bool, default=False, help='是否继续训练模型')
+    parser.add_argument('--other_para', type=str, default=False, help='是否继续训练模型')
+    parser.add_argument('--epoch', type=int, default=-1, help='是否继续训练模型')
     return parser.parse_args()
 
 
@@ -235,15 +260,18 @@ def main():
 
     args = set_args()
     torch.multiprocessing.set_start_method('spawn')
-    while not os.path.exists(args.train_file_path):
-        time.sleep(120)
-        continue
 
     fine_tune_args = {
         'N': args.Aggregator_num,
         'fusion_dim': args.fusion_dim,
         'has_res': args.has_res,
+        'head_num': args.head_num,
+        'is_mask': args.is_mask,
     }
+    if args.continue_train:
+        model_path = os.path.join(args.pretrained_model_path, 'checkpoint-epoch={}'.format(args.epoch))
+    else:
+        model_path = args.pretrained_model_path
     # 设置显卡信息
     print('=' * 100)
     for k in args.__dict__:
@@ -260,10 +288,11 @@ def main():
         torch.manual_seed(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
+
     # 加载模型的config
     model_config = GPT2Config.from_json_file(args.config_path)
     if args.pretrained_model_path:
-        model = GPT2LMHeadModel.from_pretrained(args.pretrained_model_path, finetune_args=fine_tune_args)
+        model = GPT2LMHeadModel.from_pretrained(model_path, finetune_args=fine_tune_args)
     else:
         # 如果没有指定的预训练模型，则初始化模型
         model = GPT2LMHeadModel(config=model_config, finetune_args=fine_tune_args)

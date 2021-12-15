@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from search_rhyme import *
+from search_rhyme import get_sent_rhyme
 
 
 def set_args():

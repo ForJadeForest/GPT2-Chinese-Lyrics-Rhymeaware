@@ -19,7 +19,7 @@ def _generate_square_subsequent_mask(sz):
 
 
 class Aggregator(nn.Module):
-    def __init__(self, rhyme_embedding_size, word_embedding_size, fusion_dim,num_heads):
+    def __init__(self, rhyme_embedding_size, word_embedding_size, fusion_dim, num_heads, is_mask=True):
         super().__init__()
         self.fusion_dim = fusion_dim
         self.fusion_matrix_rhyme = nn.Linear(rhyme_embedding_size, self.fusion_dim, bias=True)
@@ -31,12 +31,17 @@ class Aggregator(nn.Module):
                                                     batch_first=True)
         self.back_rhyme = nn.Linear(self.fusion_dim, rhyme_embedding_size, bias=True)
         self.back_word = nn.Linear(self.fusion_dim, word_embedding_size, bias=True)
+        self.is_mask = is_mask
 
     def forward(self, word_seq_re, rhy_seq_re):
         device = word_seq_re.device
-        mask = _generate_square_subsequent_mask(sz=word_seq_re.shape[1]).to(device)
-        word_seq_re = self.word_attention(word_seq_re, word_seq_re, word_seq_re, attn_mask=mask)[0]
-        rhy_seq_re = self.rhyme_attention(rhy_seq_re, rhy_seq_re, rhy_seq_re, attn_mask=mask)[0]
+        if self.is_mask:
+            mask = _generate_square_subsequent_mask(sz=word_seq_re.shape[1]).to(device)
+            word_seq_re = self.word_attention(word_seq_re, word_seq_re, word_seq_re, attn_mask=mask)[0]
+            rhy_seq_re = self.rhyme_attention(rhy_seq_re, rhy_seq_re, rhy_seq_re, attn_mask=mask)[0]
+        else:
+            word_seq_re = self.word_attention(word_seq_re, word_seq_re, word_seq_re)[0]
+            rhy_seq_re = self.rhyme_attention(rhy_seq_re, rhy_seq_re, rhy_seq_re)[0]
         h = self.relu(self.fusion_matrix_word(word_seq_re) + self.fusion_matrix_rhyme(rhy_seq_re))
         next_word_seq_re = self.relu(self.back_word(h))
         next_rhy_seq_re = self.relu(self.back_rhyme(h))
@@ -91,9 +96,11 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         self.rhy_vocab = get_rhyme_vocab()
         self.fusion_dim = finetune_args["fusion_dim"]
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        self.rhyme_embedding = nn.Embedding(len(self.rhy_vocab) + 2, rhyme_embedding_size, padding_idx=0)
+        self.rhyme_embedding = nn.Embedding(len(self.rhy_vocab) + 1, rhyme_embedding_size, padding_idx=0)
         self.head_num = finetune_args["head_num"]
-        self.aggregator = clones(Aggregator(rhyme_embedding_size, config.n_embd, self.fusion_dim,self.head_num), self.N)
+        self.aggregator = clones(
+            Aggregator(rhyme_embedding_size, config.n_embd, self.fusion_dim, self.head_num, finetune_args["is_mask"]),
+            self.N)
         if self.has_res:
             self.sublayer = clones(SublayerConnection(size=config.n_embd, dropout=0.1), self.N)
         self.word_fusion = nn.Linear(config.n_embd,config.n_embd)

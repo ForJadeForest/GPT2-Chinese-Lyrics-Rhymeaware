@@ -7,18 +7,11 @@ import logging
 from torch.nn.utils.rnn import pad_sequence
 from search_rhyme import *
 import random
+
 logger = logging.getLogger(__name__)
 
 
 def collate_func(batch_data):
-    """
-    DataLoader所需的collate_fun函数，将数据处理成tensor形式
-    Args:
-        batch_data: batch数据
-
-    Returns:
-
-    """
     batch_size = len(batch_data)
     # 如果batch_size为0，则返回一个空字典
     if batch_size == 0:
@@ -71,7 +64,6 @@ class GPT2RapGeneratorDataSet(Dataset):
         with open(path_file, "r", encoding="utf-8") as fh:
             data = json.load(fh)
             for idx, sample in enumerate(tqdm(data, desc="iter", disable=False)):
-                # 使用convert_feature函数，对新闻正文和标题进行索引化，生成模型所需数据格式
                 input_ids, token_type_ids, rhyme_ids = self.convert_feature(sample)
                 self.data_set.append({
                     "input_ids": input_ids,
@@ -82,26 +74,15 @@ class GPT2RapGeneratorDataSet(Dataset):
         return self.data_set
 
     def convert_feature(self, sample):
-        """
-        数据处理函数
-        Args:
-            sample: 一个字典，包含新闻的正文和新闻的标题，格式为{"content": content, "title": title}
-
-        Returns:
-
-        """
         input_ids = []
         token_type_ids = []
         rhyme_ids = []
-        # 对新闻正文进行tokenizer.tokenize分词
         first_sent = self.tokenizer.tokenize(sample["1"].replace(" ", "<word_space>"))
-        # 对新闻标题进行tokenizer.tokenize分词，注意tokenizer中已经将[Space]作为一个分隔符，不会切割成多个字符
         second_sent = self.tokenizer.tokenize(sample["2"].replace(" ", "<word_space>"))
 
-        # 判断如果标题过长，进行截断
         if len(first_sent) > self.first_max_len:
             first_sent = first_sent[:self.first_max_len]
-        # 判断如果正文过长，进行截断
+
         if len(second_sent) > self.max_len - len(first_sent) - 3:
             second_sent = second_sent[:self.max_len - len(first_sent) - 3]
         first_rhy = get_sent_rhyme(first_sent)
@@ -110,23 +91,25 @@ class GPT2RapGeneratorDataSet(Dataset):
         input_ids.append(self.tokenizer.cls_token_id)
         token_type_ids.append(self.first_sent_id)
         rhyme_ids.append(get_rhyme('<cls>'))
+
         input_ids.extend(self.tokenizer.convert_tokens_to_ids(first_sent))
         token_type_ids.extend([self.first_sent_id] * len(first_sent))
         rhyme_ids += first_rhy
+
         input_ids.append(self.tokenizer.sep_token_id)
         token_type_ids.append(self.first_sent_id)
         rhyme_ids.append(get_rhyme('<sep>'))
+
         input_ids.extend(self.tokenizer.convert_tokens_to_ids(second_sent))
         token_type_ids.extend([self.second_sent_id] * len(second_sent))
         rhyme_ids += second_rhy
+
         input_ids.append(self.tokenizer.sep_token_id)
         token_type_ids.append(self.second_sent_id)
         rhyme_ids.append(get_rhyme('<sep>'))
 
-        # 判断input_ids与token_type_ids长度是否一致
         # 判断input_ids长度是否小于等于最大长度
         assert len(input_ids) <= self.max_len
-
 
         return input_ids, token_type_ids, rhyme_ids
 

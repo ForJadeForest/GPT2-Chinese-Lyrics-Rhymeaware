@@ -1,14 +1,14 @@
+import argparse
+import copy
 import json
+import os
 
 import torch
-import os
-import argparse
-from model import GPT2LMHeadModel
-from transformers import BertTokenizer
 import torch.nn.functional as F
-import copy
+from transformers import BertTokenizer
+
+from model import GPT2LMHeadModel
 from search_rhyme import *
-from tqdm import tqdm
 
 
 def set_args():
@@ -16,16 +16,16 @@ def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', default='1', type=str, help='设置预测时使用的显卡,使用CPU设置成-1即可')
     parser.add_argument('--model_path',
-                        default='/home/guest/yxyuan/Rap_generator/output_dir/[2021-12-06-18:18:55]中文歌词小模型', type=str,
+                        default=r'/home/guest/yxyuan/Rap_generator/output_dir/[2021-12-14-13:11:11]中文歌词超级大模型', type=str,
                         help='模型文件路径')
     parser.add_argument('--vocab_path', default='./pre-train-model/model', type=str, help='词表，该词表为小词表，并增加了一些新的标记')
     parser.add_argument('--batch_size', default=1, type=int, help='生成标题的个数')
     parser.add_argument('--generate_max_len', default=256, type=int, help='生成标题的最大长度')
     parser.add_argument('--repetition_penalty', default=2, type=float, help='重复处罚率')
-    parser.add_argument('--top_k', default=30, type=int, help='解码时保留概率最高的多少个标记')
+    parser.add_argument('--top_k', default=50, type=int, help='解码时保留概率最高的多少个标记')
     parser.add_argument('--top_p', default=0.95, type=float, help='解码时保留概率累加大于多少的标记')
     parser.add_argument('--max_len', type=int, default=512, help='输入模型的最大长度，要比config中n_ctx小')
-    parser.add_argument('--epoch', type=int, default=1, help='所需模型的训练的次数')
+    parser.add_argument('--epoch', type=int, default=27, help='所需模型的训练的次数')
     return parser.parse_args()
 
 
@@ -106,7 +106,7 @@ def predict_one_sample(model, tokenizer, device, args, content):
     finish_set = set()
     with torch.no_grad():
         # 遍历生成标题最大长度
-        rhyme = torch.tensor(get_sent_rhyme(content_tokens)).to('cuda')
+        rhyme = torch.tensor(get_sent_rhyme(content_tokens)).to(device)
         for _ in range(args.generate_max_len):
 
             outputs = model(input_ids=input_tensors, token_type_ids=token_type_tensors, rhyme_ids=rhyme)
@@ -146,7 +146,7 @@ def predict_one_sample(model, tokenizer, device, args, content):
             input_tensors = torch.cat((input_tensors, next_tokens), dim=-1)
             token_type_tensors = torch.cat((token_type_tensors, next_token_type), dim=-1)
             next_tokens_char = tokenizer.convert_ids_to_tokens(next_tokens)
-            rhyme = torch.cat((rhyme, torch.tensor([get_sent_rhyme(next_tokens_char)[0]]).to('cuda')), dim=-1)
+            rhyme = torch.cat((rhyme, torch.tensor([get_sent_rhyme(next_tokens_char)[0]]).to(device)), dim=-1)
         # 用于存储预测结果
         candidate_responses = []
         # 对batch_size进行遍历，并将token_id变成对应汉字
@@ -171,8 +171,9 @@ def main():
     # 获取设备信息
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICE"] = args.device
-    device = torch.device("cuda" if torch.cuda.is_available() and int(args.device) >= 0 else "cpu")
-
+    device = torch.device(
+        "cuda:{}".format(args.device) if torch.cuda.is_available() and int(args.device) >= 0 else "cpu")
+    print(device)
     model_path = os.path.join(args.model_path, 'checkpoint-epoch={}'.format(args.epoch))
     finetune_path = os.path.join(args.model_path, 'fine_tune.json')
     with open(finetune_path, 'r') as f:
@@ -180,20 +181,24 @@ def main():
 
     # 实例化tokenizer和model
     tokenizer = BertTokenizer.from_pretrained(args.vocab_path, do_lower_case=True, never_split=['<word_space>'])
-    model = GPT2LMHeadModel.from_pretrained(model_path,
-                                            finetune_args=finetune_args)
+    model = GPT2LMHeadModel.from_pretrained(model_path, finetune_args=finetune_args)
     model.to(device)
     model.eval()
-    content = "都想一步登天，想要升仙，烦恼在我身边，快乐继续增添 "
-    result = [[content]]
-    for times in tqdm(range(args.batch_size)):
-        next_sent = [content]
-        for i in range(10):
-            next_sent = predict_one_sample(model, tokenizer, device, args, next_sent[0])
-            print(next_sent)
-            result[times].append(next_sent[0])
-    for times in range(args.batch_size):
-        print('\n'.join(result[times]))
+    content = "最美不是下雨天 是曾与你躲过雨的屋檐"
+    result = [content for i in range(args.batch_size)]
+    # for times in range(args.batch_size):
+    next_sent = result
+    for _ in range(30):
+        gene_rap = predict_one_sample(model, tokenizer, device, args, next_sent[0])
+
+        next_sent[0] = next_sent[0] + ' ' + gene_rap[0]
+        # next_sent = gene_rap
+        # print(gene_rap[0])
+        # print(next_sent)
+
+        # for i in range(args.batch_size):
+        #     result[i]+=(next_sent[i] + ' ')
+    print(next_sent[0].replace(' ', '\n'))
 
 
 if __name__ == '__main__':
