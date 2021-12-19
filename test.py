@@ -2,20 +2,19 @@ import json
 import os
 
 import torch
-from transformers import BertTokenizer
 
-from model import GPT2LMHeadModel
+from utils import set_args, load_my_model, test_rhyme_acc
 
-
-def load_my_model(args):
-    model_path = os.path.join(args.model_path, 'checkpoint-epoch={}'.format(args.epoch))
-    finetune_path = os.path.join(args.model_path, 'fine_tune.json')
+if __name__ == '__main__':
+    args = set_args()
+    model, tokenizer = load_my_model(args)
+    with open('/home/guest/yxyuan/Rap_generator/data_dir/processing/big_data/test_data2.json', 'r',
+              encoding='utf8') as f:
+        data = json.loads(f.read())
+    # 获取设备信息
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICE"] = args.device
     device = torch.device(
         "cuda:{}".format(args.device) if torch.cuda.is_available() and int(args.device) >= 0 else "cpu")
-    with open(finetune_path, 'r') as f:
-        finetune_args = json.load(f)
-    tokenizer = BertTokenizer.from_pretrained(args.vocab_path, do_lower_case=True, never_split=['<word_space>'])
-    model = GPT2LMHeadModel.from_pretrained(model_path, finetune_args=finetune_args)
-    model.to(device)
-    model.eval()
-    return model, tokenizer
+    print(device)
+    test_rhyme_acc(model, tokenizer, data, device, args)

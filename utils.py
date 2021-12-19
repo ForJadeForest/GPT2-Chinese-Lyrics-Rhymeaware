@@ -1,18 +1,22 @@
 import argparse
+import json
+import os
 
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+from transformers import BertTokenizer
 
+from model import GPT2LMHeadModel
 from search_rhyme import get_sent_rhyme
 
 
 def set_args():
     """设置模型预测所需参数"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--device', default='1', type=str, help='设置预测时使用的显卡,使用CPU设置成-1即可')
+    parser.add_argument('--device', default='-1', type=str, help='设置预测时使用的显卡,使用CPU设置成-1即可')
     parser.add_argument('--model_path',
-                        default=r'/home/guest/yxyuan/Rap_generator/output_dir/[2021-12-14-13:11:11]中文歌词超级大模型', type=str,
+                        default=r'/home/guest/yxyuan/Rap_generator/output_dir/[2021-12-17-13:16:34]大模型强制押韵版', type=str,
                         help='模型文件路径')
     parser.add_argument('--vocab_path', default='./pre-train-model/model', type=str, help='词表，该词表为小词表，并增加了一些新的标记')
     parser.add_argument('--generate_max_len', default=256, type=int, help='生成标题的最大长度')
@@ -20,7 +24,7 @@ def set_args():
     parser.add_argument('--top_k', default=50, type=int, help='解码时保留概率最高的多少个标记')
     parser.add_argument('--top_p', default=0.95, type=float, help='解码时保留概率累加大于多少的标记')
     parser.add_argument('--max_len', type=int, default=512, help='输入模型的最大长度，要比config中n_ctx小')
-    parser.add_argument('--epoch', type=int, default=27, help='所需模型的训练的次数')
+    parser.add_argument('--epoch', type=int, default=16, help='所需模型的训练的次数')
     return parser.parse_args()
 
 
@@ -133,11 +137,26 @@ def test_rhyme_acc(model, tokenizer, data, device, args):
     for step, sent_pair in enumerate(bar):
         first = sent_pair['1']
         # 获取预测结果
-        result = predict_one_sample(model, tokenizer, device, args, first)[0]
+        result = predict_one_sample(model, tokenizer, device, args, first)
         if result == '' or first == '':
             continue
         if get_sent_rhyme(first)[-1] == get_sent_rhyme(result)[-1]:
             right += 1
         num += 1
+        bar.write(result + '+++' + first)
         bar.set_description(desc='Rhyme!:{}'.format(round(right / num, 6)))
     return right, num
+
+
+def load_my_model(args):
+    model_path = os.path.join(args.model_path, 'checkpoint-epoch={}'.format(args.epoch))
+    finetune_path = os.path.join(args.model_path, 'fine_tune.json')
+    device = torch.device(
+        "cuda:{}".format(args.device) if torch.cuda.is_available() and int(args.device) >= 0 else "cpu")
+    with open(finetune_path, 'r') as f:
+        finetune_args = json.load(f)
+    tokenizer = BertTokenizer.from_pretrained(args.vocab_path, do_lower_case=True, never_split=['<word_space>'])
+    model = GPT2LMHeadModel.from_pretrained(model_path, finetune_args=finetune_args)
+    model.to(device)
+    model.eval()
+    return model, tokenizer
