@@ -28,6 +28,8 @@ make lyrics generated more rhyme!
 
 - 受启发于 [ERNIE: Enhanced Language Representation with Informative Entities](https://arxiv.org/abs/1905.07129) 知识融合方式，项目中设计了韵律融合结构，如下图
   - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/art.png" alt="art" style="zoom:50%;" />
+
+
   - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/net1.jpg" alt="net1" style="zoom:50%;" />
 - 文本先通过GPT2获得相应的序列表示，在经过多个Aggregator层进行韵律和文本的融合。在最后一层再经过一个线性映射层得到相应的logits。输出结果。
 
