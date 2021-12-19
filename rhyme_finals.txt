@@ -1,0 +1,13 @@
+a,ia,ua
+an,ian,uan
+o,e,uo
+en,un
+ie,ve
+ang,iang,uang
+ai,uai
+eng,ong,iong
+ei,ui
+i,er,v,in,ing
+ao,iao
+ou,iu
+u
