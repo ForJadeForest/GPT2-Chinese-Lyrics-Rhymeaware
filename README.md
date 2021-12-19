@@ -95,7 +95,7 @@ python generate.py --device=0 --model_path=.\final_model --vocab_path=.\final_mo
 
 ### model download
 
-- 等待上传ing...
+- [谷歌网盘](https://drive.google.com/drive/folders/1SBRP7WEctNnV0puUz69VwH3AYAHzQEm8?usp=sharing)
 
 ### Acknowledge
 
