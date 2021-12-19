@@ -1,10 +1,12 @@
 import json
-import re
 import os
-from tqdm import tqdm
-from search_rhyme import *
-import time
 import random
+import re
+import time
+
+from tqdm import tqdm
+
+from search_rhyme import *
 
 
 def satisfy_condition(lyrics_list, first, second, rap_dict):
