@@ -27,10 +27,10 @@ make lyrics generated more rhyme!
 ### model
 
 - 受启发于 [ERNIE: Enhanced Language Representation with Informative Entities](https://arxiv.org/abs/1905.07129) 知识融合方式，项目中设计了韵律融合结构，如下图
-  - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/art.png" alt="art" style="zoom:50%;" />
+  - <img src="https://jadepicgo.oss-cn-shenzhen.aliyuncs.com/img/art.png" alt="art" style="zoom:50%;" />
 
 
-  - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/net1.jpg" alt="net1" style="zoom:50%;" />
+  - <img src="https://jadepicgo.oss-cn-shenzhen.aliyuncs.com/img/net1.jpg" alt="net1" style="zoom:50%;" />
 - 文本先通过GPT2获得相应的序列表示，在经过多个Aggregator层进行韵律和文本的融合。在最后一层再经过一个线性映射层得到相应的logits。输出结果。
 
 
@@ -90,8 +90,8 @@ python generate.py --device=0 --model_path=.\final_model --vocab_path=.\final_mo
 ```
 
 - 测试结果，采用`top_k=50, top_p=0.95`保证生成的语句多样性
-  - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/image-20211219151104419.png" alt="image-20211219151104419" style="zoom:50%;" />
-  - <img src="https://gitee.com/jadeforest/for-pic/raw/master/img/image-20211219151538672.png" alt="image-20211219151538672" style="zoom:50%;" />
+  - <img src="https://jadepicgo.oss-cn-shenzhen.aliyuncs.com/img/image-20211219151104419.png" alt="image-20211219151104419" style="zoom:50%;" />
+  - <img src="https://jadepicgo.oss-cn-shenzhen.aliyuncs.com/img/image-20211219151538672.png" alt="image-20211219151538672" style="zoom:50%;" />
 
 ### model download
 
